@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Review Analysis Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue-router@3.5.3/dist/vue-router.js"></script>
+    <!-- Add Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div id="app">
+        <!-- Navigation Bar -->
+        <nav class="bg-blue-600 p-4 text-white">
+            <div class="container mx-auto flex justify-between items-center">
+                <h1 class="text-2xl font-bold">Fake Review Detection Dashboard</h1>
+                <div>
+                    <router-link to="/" class="mx-2 hover:text-gray-200">Home</router-link>
+                    <router-link to="/metrics" class="mx-2 hover:text-gray-200">Metrics</router-link>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Router View -->
+        <router-view></router-view>
+    </div>
+
+    <script>
+        // Home Component
+        const Home = {
+            template: `
+              <div class="container mx-auto p-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                  <div class="bg-white p-4 rounded shadow">
+                    <h2 class="text-xl font-semibold mb-4">Dashboard Statistics</h2>
+                    <div class="space-y-2">
+                      <p class="flex justify-between">
+                        <span>Total Reviews:</span>
+                        <span class="font-semibold">{{ totalReviews }}</span>
+                      </p>
+                      <p class="flex justify-between">
+                        <span>Genuine Reviews:</span>
+                        <span class="font-semibold text-green-600">{{ positiveReviews }}</span>
+                      </p>
+                      <p class="flex justify-between">
+                        <span>Fake Reviews:</span>
+                        <span class="font-semibold text-red-600">{{ negativeReviews }}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="bg-white p-4 rounded shadow">
+                    <h2 class="text-xl font-semibold mb-4">Single Review Analysis</h2>
+                    <textarea v-model="reviewText" class="w-full p-2 border rounded mb-4 h-32" placeholder="Enter review text to analyze" :disabled="isAnalyzing"></textarea>
+                    <button @click="analyzeReview" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full disabled:opacity-50" :disabled="!reviewText.trim() || isAnalyzing">
+                      {{ isAnalyzing ? 'Analyzing...' : 'Analyze Review' }}
+                    </button>
+                  </div>
+
+                  <div class="bg-white p-4 rounded shadow">
+                    <h2 class="text-xl font-semibold mb-4">Bulk Upload</h2>
+                    <div class="space-y-4">
+                      <div class="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                        <input type="file" @change="handleFileUpload" accept=".csv,.txt" class="w-full" :disabled="isUploading">
+                        <p class="text-sm text-gray-500 mt-2">Accepted formats: .csv, .txt</p>
+                      </div>
+                      <button @click="uploadReviews" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded w-full disabled:opacity-50" :disabled="!uploadFile || isUploading">
+                        {{ isUploading ? 'Uploading...' : 'Upload & Analyze' }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="bg-white p-4 rounded shadow">
+                  <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Recent Analysis Results</h2>
+                    <button @click="fetchReviews" class="text-blue-500 hover:text-blue-600" :disabled="isLoading">
+                      <span v-if="isLoading">Refreshing...</span>
+                      <span v-else>Refresh</span>
+                    </button>
+                  </div>
+
+                  <div class="overflow-x-auto">
+                    <table class="w-full">
+                      <thead>
+                      <tr class="bg-gray-100">
+                        <th class="p-3 text-left">Review Text</th>
+                        <th class="p-3 text-left">Classification</th>
+                        <th class="p-3 text-left">Confidence</th>
+                        <th class="p-3 text-left">Word Count</th>
+                        <th class="p-3 text-left">Timestamp</th>
+                      </tr>
+                      </thead>
+                      <tbody v-if="reviews.length">
+                      <tr v-for="(review, index) in reviews" :key="index" class="border-b hover:bg-gray-50">
+                        <td class="p-3">{{ truncateText(review.text || '', 100) }}</td>
+                        <td class="p-3">
+                                            <span :class="{
+                                                    'px-2 py-1 rounded text-sm font-medium': true,
+                                                    'bg-green-100 text-green-800': review.sentiment === 'Genuine',
+                                                    'bg-red-100 text-red-800': review.sentiment === 'Fake'
+                                                }">
+                                                {{ review.sentiment }}
+                                            </span>
+                        </td>
+                        <td class="p-3">{{ (review.confidence * 100).toFixed(2) }}%</td>
+                        <td class="p-3">{{ review.word_count || 0 }}</td>
+                        <td class="p-3">{{ formatTimestamp(review.timestamp) }}</td>
+                      </tr>
+                      </tbody>
+                      <tbody v-else>
+                      <tr>
+                        <td colspan="5" class="p-3 text-center text-gray-500">No reviews analyzed yet</td>
+                      </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            `,
+            data() {
+                return {
+                    reviewText: '',
+                    reviews: [],
+                    totalReviews: 0,
+                    positiveReviews: 0,
+                    negativeReviews: 0,
+                    uploadFile: null,
+                    isAnalyzing: false,
+                    isUploading: false,
+                    isLoading: false
+                };
+            },
+            mounted() {
+                this.fetchReviews();
+            },
+            methods: {
+                truncateText(text, length) {
+                    if (!text) return '';
+                    return text.length > length ? text.substring(0, length) + '...' : text;
+                },
+                formatTimestamp(timestamp) {
+                    if (!timestamp) return 'N/A';
+                    return new Date(timestamp).toLocaleString();
+                },
+                async fetchReviews() {
+                    this.isLoading = true;
+                    try {
+                        const response = await axios.get('/reviews');
+                        this.reviews = response.data.slice(-10);
+                        this.totalReviews = response.data.length;
+                        this.positiveReviews = response.data.filter(r => r.sentiment === 'Genuine').length;
+                        this.negativeReviews = response.data.filter(r => r.sentiment === 'Fake').length;
+                    } catch (error) {
+                        console.error('Error fetching reviews:', error);
+                        alert('Failed to fetch reviews. Please try again later.');
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+                async analyzeReview() {
+                    if (!this.reviewText.trim()) return;
+
+                    this.isAnalyzing = true;
+                    try {
+                        await axios.post('/analyze', { review: this.reviewText });
+                        await this.fetchReviews();
+                        this.reviewText = '';
+                    } catch (error) {
+                        console.error('Error analyzing review:', error);
+                        alert('Failed to analyze review. Please try again.');
+                    } finally {
+                        this.isAnalyzing = false;
+                    }
+                },
+                handleFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (file && (file.type === 'text/csv' || file.type === 'text/plain')) {
+                        this.uploadFile = file;
+                    } else {
+                        alert('Please upload a valid CSV or TXT file');
+                        event.target.value = '';
+                    }
+                },
+                async uploadReviews() {
+                    if (!this.uploadFile) return;
+
+                    this.isUploading = true;
+                    const formData = new FormData();
+                    formData.append('file', this.uploadFile);
+
+                    try {
+                        const response = await axios.post('/bulk_upload', formData, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                        await this.fetchReviews();
+                        alert(`Successfully analyzed ${response.data.length} reviews`);
+                        this.uploadFile = null;
+                    } catch (error) {
+                        console.error('Error uploading reviews:', error);
+                        alert('Failed to upload and analyze reviews. Please try again.');
+                    } finally {
+                        this.isUploading = false;
+                    }
+                }
+            }
+        };
+
+        // Metrics Component
+        const Metrics = {
+            template: `
+                <div class="container mx-auto p-6">
+                    <h2 class="text-2xl font-bold mb-6">Evaluation Metrics</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white p-4 rounded shadow">
+                            <h3 class="text-xl font-semibold mb-4">Confusion Matrix</h3>
+                            <img src="/static/confusion_matrix.png" alt="Confusion Matrix" class="w-full">
+                        </div>
+                        <div class="bg-white p-4 rounded shadow">
+                            <h3 class="text-xl font-semibold mb-4">Classification Report</h3>
+                            <pre class="bg-gray-100 p-4 rounded">{{ classificationReport }}</pre>
+                        </div>
+                        <div class="bg-white p-4 rounded shadow">
+                            <h3 class="text-xl font-semibold mb-4">Class Distribution</h3>
+                            <canvas ref="classDistributionChart" class="w-full"></canvas>
+                        </div>
+                        <div class="bg-white p-4 rounded shadow">
+                            <h3 class="text-xl font-semibold mb-4">Feature Importance</h3>
+                            <canvas ref="featureImportanceChart" class="w-full"></canvas>
+                        </div>
+                        <div class="bg-white p-4 rounded shadow">
+                            <h3 class="text-xl font-semibold mb-4">Training Metrics</h3>
+                            <img src="/static/training_metrics.png" alt="Training Metrics" class="w-full">
+                        </div>
+                    </div>
+                </div>
+            `,
+            data() {
+                return {
+                    classificationReport: '',
+                    classDistributionData: {
+                        labels: ['Genuine', 'Fake'],
+                        datasets: [{
+                            label: 'Number of Reviews',
+                            data: [0, 0],
+                            backgroundColor: ['#4CAF50', '#F44336'],
+                        }]
+                    },
+                    featureImportanceData: {
+                        labels: ['Feature 1', 'Feature 2', 'Feature 3', 'Feature 4', 'Feature 5'],
+                        datasets: [{
+                            label: 'Importance Score',
+                            data: [0.1, 0.3, 0.5, 0.2, 0.4],
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        }]
+                    }
+                };
+            },
+            mounted() {
+                this.fetchMetrics();
+                this.renderCharts();
+            },
+            methods: {
+                async fetchMetrics() {
+                    try {
+                        const response = await axios.get('/metrics');
+                        this.classificationReport = response.data;
+
+                        const classDistributionResponse = await axios.get('/class_distribution');
+                        this.classDistributionData.datasets[0].data = [classDistributionResponse.data.genuine, classDistributionResponse.data.fake];
+
+                        const featureImportanceResponse = await axios.get('/feature_importance');
+                        this.featureImportanceData.datasets[0].data = featureImportanceResponse.data;
+                    } catch (error) {
+                        console.error('Error fetching metrics:', error);
+                        alert('Failed to fetch metrics. Please try again later.');
+                    }
+                },
+
+                renderCharts() {
+                    const classDistributionCtx = this.$refs.classDistributionChart.getContext('2d');
+                    new Chart(classDistributionCtx, {
+                        type: 'bar',
+                        data: this.classDistributionData,
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+
+                    const featureImportanceCtx = this.$refs.featureImportanceChart.getContext('2d');
+                    new Chart(featureImportanceCtx, {
+                        type: 'bar',
+                        data: this.featureImportanceData,
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        };
+
+        const routes = [
+            { path: '/', component: Home },
+            { path: '/metrics', component: Metrics }
+        ];
+
+        const router = new VueRouter({
+            routes
+        });
+
+        new Vue({
+            el: '#app',
+            router
+        });
+    </script>
+</body>
+</html>
