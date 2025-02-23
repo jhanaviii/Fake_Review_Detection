@@ -83,8 +83,6 @@ This will output a classification report and save results in `evaluation_results
 ```bash
 python web2.py
 ```
-The server will start on:  
-📍 **http://127.0.0.1:5000/**  
 
 ### Making Predictions
 With the server running, send a POST request:
